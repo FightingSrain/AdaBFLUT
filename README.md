@@ -1,4 +1,4 @@
-# AdaB-LUT
+# AdaBF-LUT
 
 # Requirements and Dependencies
 - pytorch 0.4.1+
