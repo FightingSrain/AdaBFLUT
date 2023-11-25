@@ -1,8 +1,8 @@
 # AdaBF-LUT
 
 # Requirements and Dependencies
-- pytorch 0.4.1+
-- python 3.5+
+- pytorch 11.6
+- python 3.8
 
 # How to run 
 - 1.GaussTrain.py
