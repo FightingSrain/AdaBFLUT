@@ -15,7 +15,7 @@ import time
 SAMPLING_INTERVAL = 4       # N bit uniform sampling
 L = 2 ** (8 - SAMPLING_INTERVAL) + 1
 q = 2**SAMPLING_INTERVAL
-
+outsize = 4
 mod = ['x', 's', 'c']
 class AnisotropicGaussianFilter(torch.nn.Module):
     def __init__(self, num_channels):
@@ -37,27 +37,26 @@ class AnisotropicGaussianFilter(torch.nn.Module):
         theta = theta.view(-1, 1, 1)  # (0, 1)
         sigr = sigcx.view(-1, 1, 1)
 
-        spatial_kernel = (
-                torch.exp(- (mesh_x.cuda() ** 2 / (2 * sigr ** 2) +
-                             mesh_y.cuda() ** 2 / (2 * sigr ** 2))))
-        # --------------
         multiplier = 1  # 1 / (2*pi*sigma_x*sigma_y*math.sqrt(1-rho**2) + self.eps)
-        e_multiplier = -1 / 2  # * 1/(self.max_sigma) # -1 * (1/(2*(1-rho**2)+self.eps))
-        # x方向中心像素点的值与其它像素点的值的差值
+        e_multiplier = - 1 / 2  # * 1/(self.max_sigma) # -1 * (1/(2*(1-rho**2)+self.eps))
+        rho = theta
+        x_nominal = (sigx * mesh_x.cuda()) ** 2
+        y_nominal = (sigy * mesh_y.cuda()) ** 2
+        xy_nominal = sigx * mesh_x.cuda() * sigy * mesh_y.cuda()
+        exp_term = e_multiplier * (x_nominal - 2 * rho * xy_nominal + y_nominal)
+        spatial_kernel = multiplier * torch.exp(exp_term)
+        # --------------
         disx = torch.abs(x[:, ks // 2, :, :].unsqueeze(1) - x)
         disx = torch.permute(disx, dims=[0, 3, 1, 2]).reshape(-1, ks, ks).cuda()
         # y方向中心像素点的值与其它像素点的值的差值
         disy = torch.abs(x[:, :, ks // 2, :].unsqueeze(2) - x)
         disy = torch.permute(disy, dims=[0, 3, 1, 2]).reshape(-1, ks, ks).cuda()
         # ============ 方向单一
-        rho = theta
-        x_nominal = (sigx * disx) ** 2
-        y_nominal = (sigy * disy) ** 2
+        color_kernel = (
+                    torch.exp(- (disx.cuda() ** 2 / (2 * sigr ** 2) +
+                                 disy.cuda() ** 2 / (2 * sigr ** 2))))
 
-        xy_nominal = sigx * disx * sigy * disy
-        exp_term = e_multiplier * (x_nominal - 2 * rho * xy_nominal + y_nominal)
-        color_kernel = multiplier * torch.exp(exp_term)
-
+        
         kernel = spatial_kernel * color_kernel
 
 
@@ -73,7 +72,7 @@ def FourSimplexInterpFaster(weight, img_in, h, w, interval, rot, mode='s'):
     q = 2 ** interval
     L = 2 ** (8 - interval) + 1
 
-    if mode == "x":
+        if mode == "s":
         # Extract MSBs
         img_a1 = img_in[:, 0:0 + h, 0:0 + w] // q
         img_b1 = img_in[:, 0:0 + h, 1:1 + w] // q
@@ -86,7 +85,7 @@ def FourSimplexInterpFaster(weight, img_in, h, w, interval, rot, mode='s'):
         fc = img_in[:, 1:1 + h, 0:0 + w] % q
         fd = img_in[:, 1:1 + h, 1:1 + w] % q
 
-    elif mode == 's':
+    elif mode == 'c':
         img_a1 = img_in[:, 0:0 + h, 0:0 + w] // q
         img_b1 = img_in[:, 0:0 + h, 1:1 + w] // q
         img_c1 = img_in[:, 0:0 + h, 2:2 + w] // q
@@ -97,7 +96,7 @@ def FourSimplexInterpFaster(weight, img_in, h, w, interval, rot, mode='s'):
         fc = img_in[:, 0:0 + h, 2:2 + w] % q
         fd = img_in[:, 0:0 + h, 3:3 + w] % q
 
-    elif mode == 'c':
+    elif mode == 'x':
         img_a1 = img_in[:, 0:0 + h, 0:0 + w] // q
         img_b1 = img_in[:, 1:1 + h, 1:1 + w] // q
         img_c1 = img_in[:, 2:2 + h, 2:2 + w] // q
@@ -119,57 +118,57 @@ def FourSimplexInterpFaster(weight, img_in, h, w, interval, rot, mode='s'):
 
     p0000 = weight[img_a1.flatten().astype(np.int_) * L * L * L + img_b1.flatten().astype(
         np.int_) * L * L + img_c1.flatten().astype(np.int_) * L + img_d1.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
 
     p0001 = weight[img_a1.flatten().astype(np.int_) * L * L * L + img_b1.flatten().astype(
         np.int_) * L * L + img_c1.flatten().astype(np.int_) * L + img_d2.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p0010 = weight[img_a1.flatten().astype(np.int_) * L * L * L + img_b1.flatten().astype(
         np.int_) * L * L + img_c2.flatten().astype(np.int_) * L + img_d1.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p0011 = weight[img_a1.flatten().astype(np.int_) * L * L * L + img_b1.flatten().astype(
         np.int_) * L * L + img_c2.flatten().astype(np.int_) * L + img_d2.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p0100 = weight[img_a1.flatten().astype(np.int_) * L * L * L + img_b2.flatten().astype(
         np.int_) * L * L + img_c1.flatten().astype(np.int_) * L + img_d1.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p0101 = weight[img_a1.flatten().astype(np.int_) * L * L * L + img_b2.flatten().astype(
         np.int_) * L * L + img_c1.flatten().astype(np.int_) * L + img_d2.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p0110 = weight[img_a1.flatten().astype(np.int_) * L * L * L + img_b2.flatten().astype(
         np.int_) * L * L + img_c2.flatten().astype(np.int_) * L + img_d1.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p0111 = weight[img_a1.flatten().astype(np.int_) * L * L * L + img_b2.flatten().astype(
         np.int_) * L * L + img_c2.flatten().astype(np.int_) * L + img_d2.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
 
     p1000 = weight[img_a2.flatten().astype(np.int_) * L * L * L + img_b1.flatten().astype(
         np.int_) * L * L + img_c1.flatten().astype(np.int_) * L + img_d1.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p1001 = weight[img_a2.flatten().astype(np.int_) * L * L * L + img_b1.flatten().astype(
         np.int_) * L * L + img_c1.flatten().astype(np.int_) * L + img_d2.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p1010 = weight[img_a2.flatten().astype(np.int_) * L * L * L + img_b1.flatten().astype(
         np.int_) * L * L + img_c2.flatten().astype(np.int_) * L + img_d1.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p1011 = weight[img_a2.flatten().astype(np.int_) * L * L * L + img_b1.flatten().astype(
         np.int_) * L * L + img_c2.flatten().astype(np.int_) * L + img_d2.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p1100 = weight[img_a2.flatten().astype(np.int_) * L * L * L + img_b2.flatten().astype(
         np.int_) * L * L + img_c1.flatten().astype(np.int_) * L + img_d1.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p1101 = weight[img_a2.flatten().astype(np.int_) * L * L * L + img_b2.flatten().astype(
         np.int_) * L * L + img_c1.flatten().astype(np.int_) * L + img_d2.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p1110 = weight[img_a2.flatten().astype(np.int_) * L * L * L + img_b2.flatten().astype(
         np.int_) * L * L + img_c2.flatten().astype(np.int_) * L + img_d1.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     p1111 = weight[img_a2.flatten().astype(np.int_) * L * L * L + img_b2.flatten().astype(
         np.int_) * L * L + img_c2.flatten().astype(np.int_) * L + img_d2.flatten().astype(np.int_)].reshape(
-        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+        (img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
 
     # Output image holder
-    out = np.zeros((img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], 6))
+    out = np.zeros((img_a1.shape[0], img_a1.shape[1], img_a1.shape[2], outsize))
     sz = img_a1.shape[0] * img_a1.shape[1] * img_a1.shape[2]
     out = out.reshape(sz, -1)
 
@@ -404,7 +403,6 @@ KS = 5
 
 
 # ---------------
-# 遍历所有图片
 for ti, fn in enumerate(tqdm(files_gt)):
     # Load noise image and gt
     img_gt = np.array(Image.open(files_gt[ti])).astype(np.uint)
@@ -425,67 +423,19 @@ for ti, fn in enumerate(tqdm(files_gt)):
     sigy = torch.clamp(torch.sigmoid(par[:, 1:2].view(B, -1)) + 1e-6, min=0, max=1)  # [B, 1, H, W] -> [B, H*W]
     theta = torch.clamp(torch.tanh(par[:, 2:3].view(B, -1)) + 1e-6, min=-1, max=1)  # [B, 1, H, W] -> [B, H*W]
 
-    sigr = torch.clamp(torch.tanh(par[:, 3:4].view(B, -1)) + 1e-6, min=-1, max=1)  # [B, 1, H, W] -> [B, H*W]
+    sigr = torch.clamp(torch.tanh(par[:, 3:4].view(B, -1)) + 1e-6, min=0, max=1)  # [B, 1, H, W] -> [B, H*W]
 
 
 
     x_tmp = F.pad(x_in, (KS // 2, KS // 2, KS // 2, KS // 2), mode='constant', value=0)
     x_in_unf = F.unfold(x_tmp, kernel_size=(KS, KS), stride=1, padding=0)
 
-    outs = ag(x_in_unf.reshape(B, KS, KS, -1), sigx*20, sigy*20, theta, sigr * 10 + 10).view(1, B, H, W)
+    outs = ag(x_in_unf.reshape(B, KS, KS, -1), sigx*10, sigy*10, theta, sigr * 10).view(1, B, H, W)
 
     # --------------
     t2 = time.time()
     val_time += t2 - t1
-    print("time: ", t2 - t1)
-
-    # fig = plt.figure()
-    # plt.subplot(2, 2, 1)
-    # plt.imshow(sigx[0].view(H, W).detach().cpu().numpy().squeeze(), cmap='gray', vmin=0, vmax=1)
-    # plt.colorbar()
-    # plt.axis('off')
-    # # 将图片边缘的空白部分裁剪掉
-    # plt.tight_layout()
-    # # 将图片边缘的左右空白部分裁剪掉
-    # plt.margins(0, 0)
-    # plt.subplot(2, 2, 2)
-    # plt.imshow(sigy[0].view(H, W).detach().cpu().numpy().squeeze(), cmap='gray', vmin=0, vmax=1)
-    # plt.colorbar()
-    # plt.axis('off')
-    # # 将图片边缘的空白部分裁剪掉
-    # plt.tight_layout()
-    # # 将图片边缘的左右空白部分裁剪掉
-    # plt.margins(0, 0)
-    # plt.subplot(2, 2, 3)
-    # plt.imshow(theta[0].view(H, W).detach().cpu().numpy().squeeze(), cmap='RdBu_r', vmin=-1, vmax=1)
-    # plt.colorbar()
-    # plt.axis('off')
-    # # 将图片边缘的空白部分裁剪掉
-    # plt.tight_layout()
-    # # 将图片边缘的左右空白部分裁剪掉
-    # plt.margins(0, 0)
-    # plt.subplot(2, 2, 4)
-    # plt.imshow((sigcx[0]).view(H, W).detach().cpu().numpy().squeeze(), cmap='RdBu_r', vmin=-1, vmax=1)
-    # plt.colorbar()
-    # plt.axis('off')
-    # # 将图片边缘的空白部分裁剪掉
-    # plt.tight_layout()
-    # # 将图片边缘的左右空白部分裁剪掉
-    # plt.margins(0, 0)
-    # plt.show()
-
-    # plt.pause(0.1)
-    # plt.close(fig)
-    # plt.subplot(2, 3, 5)
-    # plt.imshow((rd[0]).view(64, 64).detach().cpu().numpy(), cmap='RdBu_r', vmin=-1, vmax=1)
-    # plt.colorbar()
-    # plt.pause(0.1)
-    # plt.close(fig)
-
-    # cv2.imwrite("./tst_urban_res/A2CBF.png",
-    #             (outs.cpu().numpy().squeeze().transpose(1, 2, 0)[:, :, ::-1] * 255).astype(np.uint8))
-    # cv2.imwrite('./Adobe5K/{}'.format(fn.split('\\')[-1]),
-    #             (outs.cpu().numpy().squeeze().transpose(1, 2, 0)[:,:,::-1]*255).astype(np.uint8))
+    
     cv2.imshow("label", img_gt[:,:,::-1].astype(np.uint8))
     cv2.imshow("outs", (outs.cpu().numpy().squeeze().transpose(1, 2, 0)[:,:,::-1]*255).astype(np.uint8))
     # cv2.imwrite('./Set5_tst/res_{}'.format(fn.split('\\')[-1]), (outs.cpu().numpy().squeeze().transpose(1, 2, 0)[:,:,::-1]*255).astype(np.uint8))
