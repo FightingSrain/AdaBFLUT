@@ -24,10 +24,7 @@ class AnisotropicGaussianFilter(torch.nn.Module):
 
 
     def forward(self, x, sigx, sigy, theta, sigcx, sigcy):
-        # 取得图像大小和通道数
         B, ks, ks, HW = x.size()
-
-        # 构造高斯卷积核
         mesh_x, mesh_y = torch.meshgrid(
             torch.arange(-(ks//2), (ks//2)+1), torch.arange(-(ks//2), (ks//2)+1))
 
@@ -48,10 +45,9 @@ class AnisotropicGaussianFilter(torch.nn.Module):
         # --------------
         disx = torch.abs(x[:, ks // 2, :, :].unsqueeze(1) - x)
         disx = torch.permute(disx, dims=[0, 3, 1, 2]).reshape(-1, ks, ks).cuda()
-        # y方向中心像素点的值与其它像素点的值的差值
         disy = torch.abs(x[:, :, ks // 2, :].unsqueeze(2) - x)
         disy = torch.permute(disy, dims=[0, 3, 1, 2]).reshape(-1, ks, ks).cuda()
-        # ============ 方向单一
+        # ============ 
         color_kernel = (
                     torch.exp(- (disx.cuda() ** 2 / (2 * sigr ** 2) +
                                  disy.cuda() ** 2 / (2 * sigr ** 2))))
@@ -62,7 +58,7 @@ class AnisotropicGaussianFilter(torch.nn.Module):
 
         kernel = kernel / torch.sum(kernel, dim=[1, 2], keepdim=True)
         kernel = torch.permute(kernel.view(B, HW, ks, ks), (0, 2, 3, 1))
-        # 将convkernal尺寸转换为 [num_channels, 1, 5, 5]
+        # [num_channels, 1, 5, 5]
         kernel = kernel.to(x.device)
         res = torch.sum(kernel * x, axis=[1, 2])
 
@@ -423,7 +419,7 @@ for ti, fn in enumerate(tqdm(files_gt)):
     sigy = torch.clamp(torch.sigmoid(par[:, 1:2].view(B, -1)) + 1e-6, min=0, max=1)  # [B, 1, H, W] -> [B, H*W]
     theta = torch.clamp(torch.tanh(par[:, 2:3].view(B, -1)) + 1e-6, min=-1, max=1)  # [B, 1, H, W] -> [B, H*W]
 
-    sigr = torch.clamp(torch.tanh(par[:, 3:4].view(B, -1)) + 1e-6, min=0, max=1)  # [B, 1, H, W] -> [B, H*W]
+    sigr = torch.clamp(torch.sigmoid(par[:, 3:4].view(B, -1)) + 1e-6, min=0, max=1)  # [B, 1, H, W] -> [B, H*W]
 
 
 
