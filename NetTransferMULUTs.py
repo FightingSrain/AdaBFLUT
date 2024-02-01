@@ -57,24 +57,24 @@ with torch.no_grad():
 
     for ks in mod:
         LUT = []
-        if ks == 'x':
+                if ks == 'x':
+            intputs = torch.zeros((input_tensor.size(0), 1, 4, 4))
+            intputs[:, :, 0, 0] = input_tensor[:, :, 0, 0]
+            intputs[:, :, 1, 1] = input_tensor[:, :, 0, 1]
+            intputs[:, :, 2, 2] = input_tensor[:, :, 1, 0]
+            intputs[:, :, 3, 3] = input_tensor[:, :, 1, 1]
+        elif ks == 'c':
+            intputs = torch.zeros((input_tensor.size(0), 1, 4, 4))
+            intputs[:, :, 0, 0] = input_tensor[:, :, 0, 0]
+            intputs[:, :, 0, 1] = input_tensor[:, :, 0, 1]
+            intputs[:, :, 0, 2] = input_tensor[:, :, 1, 0]
+            intputs[:, :, 0, 3] = input_tensor[:, :, 1, 1]
+        elif ks == 's':
             intputs = torch.zeros((input_tensor.size(0), 1, 2, 2))
             intputs[:, :, 0, 0] = input_tensor[:, :, 0, 0]
             intputs[:, :, 0, 1] = input_tensor[:, :, 0, 1]
             intputs[:, :, 1, 0] = input_tensor[:, :, 1, 0]
             intputs[:, :, 1, 1] = input_tensor[:, :, 1, 1]
-        elif ks == 'c':
-            intputs = torch.zeros((input_tensor.size(0), 1, 4, 4))
-            intputs[:, :, 0, 0] = input_tensor[:, :, 0, 0]
-            intputs[:, :, 0, 2] = input_tensor[:, :, 0, 1]
-            intputs[:, :, 2, 0] = input_tensor[:, :, 1, 0]
-            intputs[:, :, 2, 2] = input_tensor[:, :, 1, 1]
-        elif ks == 's':
-            intputs = torch.zeros((input_tensor.size(0), 1, 4, 4))
-            intputs[:, :, 0, 0] = input_tensor[:, :, 0, 0]
-            intputs[:, :, 1, 1] = input_tensor[:, :, 0, 1]
-            intputs[:, :, 1, 2] = input_tensor[:, :, 1, 0]
-            intputs[:, :, 2, 1] = input_tensor[:, :, 1, 1]
 
         NUM = 1000 # 采样>=5时，调整为10
         # Split input to not over GPU memory
