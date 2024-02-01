@@ -251,7 +251,7 @@ class BilateralNet(nn.Module):
         sigx = torch.clamp(torch.sigmoid(par[:, 0:1].view(B, -1)) + 1e-6, min=0, max=1)  # [B, 1, H, W] -> [B, H*W]
         sigy = torch.clamp(torch.sigmoid(par[:, 1:2].view(B, -1)) + 1e-6, min=0, max=1)  # [B, 1, H, W] -> [B, H*W]
         theta = torch.clamp(torch.tanh(par[:, 2:3].view(B, -1)), min=-1, max=1)  # [B, 1, H, W] -> [B, H*W]
-        sigr = torch.clamp(torch.tanh(par[:, 3:4].view(B, -1)) + 1e-6, min=-1, max=1)  # [B, 1, H, W] -> [B, H*W]
+        sigr = torch.clamp(torch.sigmoid(par[:, 3:4].view(B, -1)) + 1e-6, min=0, max=1)  # [B, 1, H, W] -> [B, H*W]
 
 
         x_tmp = F.pad(x_in, (self.KS // 2, self.KS // 2, self.KS // 2, self.KS // 2), mode='constant', value=0)
