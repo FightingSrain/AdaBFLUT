@@ -79,10 +79,8 @@ class AnisotropicGaussianFilter(torch.nn.Module):
 
 
     def forward(self, x, sigx, sigy, theta, sigr):
-        # 取得图像大小和通道数
-        B, ks, ks, HW = x.size()
 
-        # 构造高斯卷积核
+        B, ks, ks, HW = x.size()
         mesh_x, mesh_y = torch.meshgrid(
             torch.arange(-(ks//2), (ks//2)+1), torch.arange(-(ks//2), (ks//2)+1))
 
@@ -109,13 +107,13 @@ class AnisotropicGaussianFilter(torch.nn.Module):
         color_kernel = (
                     torch.exp(- (disx.cuda() ** 2 / (2 * sigr ** 2) +
                                  disy.cuda() ** 2 / (2 * sigr ** 2))))
-        # ============= 方向自由
+        # =============
         kernel = spatial_kernel * color_kernel
 
 
         kernel = kernel / torch.sum(kernel, dim=[1, 2], keepdim=True)
         kernel = torch.permute(kernel.view(B, HW, ks, ks), (0, 2, 3, 1))
-        # 将convkernal尺寸转换为 [num_channels, 1, 5, 5]
+        # [num_channels, 1, 5, 5]
         kernel = kernel.to(x.device)
         res = torch.sum(kernel * x, axis=[1, 2])
 
