@@ -26,14 +26,14 @@ class conv1(nn.Module):
                       self.K, self.K)  # B*C*L,K,K
         x = x.unsqueeze(1)  # B*C*L,l,K,K
         if mod == "c":
-            x = torch.cat([x[:, :, 0, 0], x[:, :, 0, 2],
-                       x[:, :, 2, 0], x[:, :, 2, 2]], dim=1)
-        elif mod == "s":
-            x = torch.cat([x[:, :, 0, 0], x[:, :, 1, 1],
-                           x[:, :, 1, 2], x[:, :, 2, 1]], dim=1)
-        elif mod == "x":
             x = torch.cat([x[:, :, 0, 0], x[:, :, 0, 1],
-                           x[:, :, 1, 0], x[:, :, 1, 1]], dim=1)
+                       x[:, :, 0, 2], x[:, :, 0, 3]], dim=1)
+        elif mod == "s":
+            x = torch.cat([x[:, :, 0, 0], x[:, :, 0, 1],
+                       x[:, :, 1, 0], x[:, :, 1, 1]], dim=1)
+        elif mod == "x":
+            x = torch.cat([x[:, :, 0, 0], x[:, :, 1, 1],
+                           x[:, :, 2, 2], x[:, :, 3, 3]], dim=1)
         x = x.unsqueeze(1).unsqueeze(1)
 
         x = self.conv(x)  # B*C*L,K,K
@@ -92,26 +92,23 @@ class AnisotropicGaussianFilter(torch.nn.Module):
         theta = theta.view(-1, 1, 1)  # (0, 1)
         sigr = sigr.view(-1, 1, 1)
         # --------------
-        spatial_kernel = (
-                torch.exp(- (mesh_x.cuda() ** 2 / (2 * sigr ** 2) +
-                             mesh_y.cuda() ** 2 / (2 * sigr ** 2))))
-        # --------------
         multiplier = 1  # 1 / (2*pi*sigma_x*sigma_y*math.sqrt(1-rho**2) + self.eps)
-        e_multiplier = -1 / 2  # * 1/(self.max_sigma) # -1 * (1/(2*(1-rho**2)+self.eps))
-        # x方向中心像素点的值与其它像素点的值的差值
+        e_multiplier = - 1 / 2  # * 1/(self.max_sigma) # -1 * (1/(2*(1-rho**2)+self.eps))
+        rho = theta
+        x_nominal = (sigx * mesh_x.cuda()) ** 2
+        y_nominal = (sigy * mesh_y.cuda()) ** 2
+        xy_nominal = sigx * mesh_x.cuda() * sigy * mesh_y.cuda()
+        exp_term = e_multiplier * (x_nominal - 2 * rho * xy_nominal + y_nominal)
+        spatial_kernel_ori = multiplier * torch.exp(exp_term)
+        # --------------
         disx = torch.abs(x[:, ks // 2, :, :].unsqueeze(1) - x)
         disx = torch.permute(disx, dims=[0, 3, 1, 2]).reshape(-1, ks, ks).cuda()
-        # y方向中心像素点的值与其它像素点的值的差值
         disy = torch.abs(x[:, :, ks // 2, :].unsqueeze(2) - x)
         disy = torch.permute(disy, dims=[0, 3, 1, 2]).reshape(-1, ks, ks).cuda()
         # ============
-        rho = theta
-        x_nominal = (sigx * disx) ** 2
-        y_nominal = (sigy * disy) ** 2
-
-        xy_nominal = sigx * disx * sigy * disy
-        exp_term = e_multiplier * (x_nominal - 2 * rho * xy_nominal + y_nominal)
-        color_kernel = multiplier * torch.exp(exp_term)
+        color_kernel = (
+                    torch.exp(- (disx.cuda() ** 2 / (2 * sigr ** 2) +
+                                 disy.cuda() ** 2 / (2 * sigr ** 2))))
         # ============= 方向自由
         kernel = spatial_kernel * color_kernel
 
@@ -143,8 +140,9 @@ class BilateralNet(nn.Module):
 
         self.mods = ['c', 's', 'x']
 
-        self.conv1cs = conv1(3, 1)
-
+        self.conv1xs = conv1(4, 1)
+        self.conv1cs = conv1(4, 1)
+        
         self.ag = AnisotropicGaussianFilter(num_channels=1)
 
         self.avg_factor = 4
@@ -166,9 +164,9 @@ class BilateralNet(nn.Module):
         B, C, H, W = x.size()
         x = x.reshape(B * C, 1, H, W)
         if mod == "s":
-            c = self.conv1cs(x, 's')
+            c = self.conv1xs(x, 's')
         elif mod == "c":
-            c = self.conv1c(x)
+            c = self.conv1cs(x, 'c')
         else:
             c = self.conv1x(x)
 
@@ -199,7 +197,7 @@ class BilateralNet(nn.Module):
         rot4 = torch.rot90(rot4, 1, [2, 3])
         rot2_x = (rot2 + rot4)/2.
         # =====================================================
-        pad = 2
+        pad = 3
         x0 = F.pad(x, (0, pad, 0, pad), mode='reflect')
         rot1 = self.Fkernek(x0, 's')
 
@@ -221,7 +219,7 @@ class BilateralNet(nn.Module):
         rot2_s = (rot2 + rot4)/2.
         # =====================================================
 
-        pad = 2
+        pad = 3
         x0 = F.pad(x, (0, pad, 0, pad), mode='reflect')
         rot1 = self.Fkernek(x0, 'c')
 
@@ -261,7 +259,7 @@ class BilateralNet(nn.Module):
         x_tmp = F.pad(x_in, (self.KS // 2, self.KS // 2, self.KS // 2, self.KS // 2), mode='constant', value=0)
         x_in_unf = F.unfold(x_tmp, kernel_size=(self.KS, self.KS), stride=1, padding=0)
 
-        outs = self.ag(x_in_unf.reshape(B, self.KS, self.KS, -1), sigx*20, sigy*20, theta, sigr * 10 + 10).view(B, C, H, W)
+        outs = self.ag(x_in_unf.reshape(B, self.KS, self.KS, -1), sigx*10, sigy*10, theta, sigr * 10).view(B, C, H, W)
 
 
         return outs, sigx, sigy, theta, sigr
